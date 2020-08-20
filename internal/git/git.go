@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/lindell/multi-gitter/internal/domain"
 
@@ -47,15 +48,37 @@ func (g *Git) Clone() error {
 }
 
 // ChangeBranch changes the branch
-func (g *Git) ChangeBranch() error {
+func (g *Git) ChangeBranch(strategy domain.ConflictStrategy) error {
 	w, err := g.repo.Worktree()
 	if err != nil {
 		return err
 	}
 
+	if strategy == domain.ConflictStrategyReplace {
+		err := g.repo.DeleteBranch(g.NewBranch)
+		if err != nil {
+			return err
+		}
+	}
+
+	branchExist := true
+	_, err = g.repo.Reference(plumbing.ReferenceName(fmt.Sprintf("refs/remotes/origin/%s", g.NewBranch)), false)
+	if err == plumbing.ErrReferenceNotFound {
+		branchExist = false
+	} else {
+		err := g.repo.Fetch(&git.FetchOptions{
+			RefSpecs: []config.RefSpec{
+				config.RefSpec(fmt.Sprintf("refs/heads/%s:refs/heads/%s", g.NewBranch, g.NewBranch)),
+			},
+		})
+		if err != nil {
+			return err
+		}
+	}
+
 	err = w.Checkout(&git.CheckoutOptions{
 		Branch: plumbing.NewBranchReferenceName(g.NewBranch),
-		Create: true,
+		Create: strategy != domain.ConflictStrategyAppend || !branchExist,
 	})
 	if err != nil {
 		return err

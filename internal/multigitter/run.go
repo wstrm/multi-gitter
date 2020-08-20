@@ -21,6 +21,7 @@ import (
 type VersionController interface {
 	GetRepositories(ctx context.Context) ([]domain.Repository, error)
 	CreatePullRequest(ctx context.Context, repo domain.Repository, newPR domain.NewPullRequest) error
+	GetPullRequestStatus(ctx context.Context, repo domain.Repository, branchName string) (domain.PullRequest, error)
 	GetPullRequestStatuses(ctx context.Context, branchName string) ([]domain.PullRequest, error)
 	MergePullRequest(ctx context.Context, pr domain.PullRequest) error
 }
@@ -38,6 +39,7 @@ type Runner struct {
 	PullRequestBody  string
 	Reviewers        []string
 	MaxReviewers     int // If set to zero, all reviewers will be used
+	ConflictStrategy domain.ConflictStrategy
 	DryRun           bool
 	CommitAuthor     *domain.CommitAuthor
 }
@@ -101,14 +103,16 @@ func (r Runner) runSingleRepo(ctx context.Context, repo domain.Repository) error
 		return err
 	}
 
-	branchExist, err := sourceController.BranchExist()
-	if err != nil {
-		return err
-	} else if branchExist {
-		return domain.BranchExistError
+	if r.ConflictStrategy == domain.ConflictStrategySkip {
+		branchExist, err := sourceController.BranchExist()
+		if err != nil {
+			return err
+		} else if branchExist {
+			return domain.BranchExistError
+		}
 	}
 
-	err = sourceController.ChangeBranch()
+	err = sourceController.ChangeBranch(r.ConflictStrategy)
 	if err != nil {
 		return err
 	}
@@ -152,16 +156,26 @@ func (r Runner) runSingleRepo(ctx context.Context, repo domain.Repository) error
 		return err
 	}
 
-	logger.Info("Change done, creating pull request")
-	err = r.VersionController.CreatePullRequest(ctx, repo, domain.NewPullRequest{
-		Title:     r.PullRequestTitle,
-		Body:      r.PullRequestBody,
-		Head:      r.FeatureBranch,
-		Base:      repo.DefaultBranch(),
-		Reviewers: getReviewers(r.Reviewers, r.MaxReviewers),
-	})
+	prStatus, err := r.VersionController.GetPullRequestStatus(ctx, repo, r.FeatureBranch)
 	if err != nil {
 		return err
+	}
+
+	switch prStatus.Status() {
+	case domain.PullRequestStatusMerged, domain.PullRequestStatusClosed:
+		logger.Info("Skip creating pull request since an open one does already exist")
+	default:
+		logger.Info("Change done, creating pull request")
+		err = r.VersionController.CreatePullRequest(ctx, repo, domain.NewPullRequest{
+			Title:     r.PullRequestTitle,
+			Body:      r.PullRequestBody,
+			Head:      r.FeatureBranch,
+			Base:      repo.DefaultBranch(),
+			Reviewers: getReviewers(r.Reviewers, r.MaxReviewers),
+		})
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil

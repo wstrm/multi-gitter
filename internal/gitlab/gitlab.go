@@ -281,7 +281,7 @@ func (g *Gitlab) GetPullRequestStatuses(ctx context.Context, branchName string) 
 
 	prs := make([]domain.PullRequest, len(projects))
 	for i, project := range projects {
-		status, iid, err := g.getPullRequestInfo(ctx, branchName, project)
+		status, iid, err := g.getPullRequestInfo(ctx, branchName, project.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -299,8 +299,26 @@ func (g *Gitlab) GetPullRequestStatuses(ctx context.Context, branchName string) 
 	return prs, nil
 }
 
-func (g *Gitlab) getPullRequestInfo(ctx context.Context, branchName string, project *gitlab.Project) (status domain.PullRequestStatus, id int, err error) {
-	mrs, _, err := g.glClient.MergeRequests.ListProjectMergeRequests(project.ID, &gitlab.ListProjectMergeRequestsOptions{
+func (g *Gitlab) GetPullRequestStatus(ctx context.Context, repo domain.Repository, branchName string) (domain.PullRequest, error) {
+	r := repo.(repository)
+
+	status, iid, err := g.getPullRequestInfo(ctx, branchName, r.pid)
+	if err != nil {
+		return nil, err
+	}
+
+	return pullRequest{
+		repoName:   r.name,
+		ownerName:  r.ownerName,
+		pid:        r.pid,
+		branchName: branchName,
+		status:     status,
+		iid:        iid,
+	}, nil
+}
+
+func (g *Gitlab) getPullRequestInfo(ctx context.Context, branchName string, projectID int) (status domain.PullRequestStatus, id int, err error) {
+	mrs, _, err := g.glClient.MergeRequests.ListProjectMergeRequests(projectID, &gitlab.ListProjectMergeRequestsOptions{
 		ListOptions: gitlab.ListOptions{
 			PerPage: 1,
 		},
@@ -314,7 +332,7 @@ func (g *Gitlab) getPullRequestInfo(ctx context.Context, branchName string, proj
 		return domain.PullRequestStatusUnknown, 0, nil
 	}
 
-	mr, _, err := g.glClient.MergeRequests.GetMergeRequest(project.ID, mrs[0].IID, nil, gitlab.WithContext(ctx))
+	mr, _, err := g.glClient.MergeRequests.GetMergeRequest(projectID, mrs[0].IID, nil, gitlab.WithContext(ctx))
 	if err != nil {
 		return domain.PullRequestStatusUnknown, mrs[0].IID, err
 	}

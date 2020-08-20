@@ -37,6 +37,7 @@ func init() {
 	RunCmd.Flags().StringSliceP("reviewers", "r", nil, "The username of the reviewers to be added on the pull request.")
 	RunCmd.Flags().IntP("max-reviewers", "M", 0, "If this value is set, reviewers will be randomized")
 	RunCmd.Flags().BoolP("dry-run", "d", false, "Run without pushing changes or creating pull requests")
+	RunCmd.Flags().StringP("conflict-strategy", "C", "skip", "What should happen if the branch already exist. Available values: skip, append, replace")
 	RunCmd.Flags().StringP("author-name", "", "", "If set, this fields will be used as the name of the committer")
 	RunCmd.Flags().StringP("author-email", "", "", "If set, this fields will be used as the email of the committer")
 }
@@ -51,6 +52,7 @@ func run(cmd *cobra.Command, args []string) error {
 	reviewers, _ := flag.GetStringSlice("reviewers")
 	maxReviewers, _ := flag.GetInt("max-reviewers")
 	dryRun, _ := flag.GetBool("dry-run")
+	conflictStrategyStr, _ := flag.GetString("conflict-strategy")
 	authorName, _ := flag.GetString("author-name")
 	authorEmail, _ := flag.GetString("author-email")
 
@@ -89,6 +91,12 @@ func run(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Parse conflict strategy
+	conflictStrategy, err := domain.ParseConflictStrategy(conflictStrategyStr)
+	if err != nil {
+		return err
+	}
+
 	workingDir, err := os.Getwd()
 	if err != nil {
 		return errors.New("could not get the working directory")
@@ -112,6 +120,7 @@ func run(cmd *cobra.Command, args []string) error {
 		Reviewers:        reviewers,
 		MaxReviewers:     maxReviewers,
 		DryRun:           dryRun,
+		ConflictStrategy: conflictStrategy,
 		CommitAuthor:     commitAuthor,
 	}
 

@@ -287,63 +287,79 @@ func (g Github) GetPullRequestStatuses(ctx context.Context, branchName string) (
 
 	prStatuses := []domain.PullRequest{}
 	for _, r := range repos {
-		repoOwner := r.GetOwner().GetLogin()
-		repoName := r.GetName()
-		log := log.WithField("repo", fmt.Sprintf("%s/%s", repoOwner, repoName))
-		log.Debug("Fetching latest pull request")
-		prs, _, err := g.ghClient.PullRequests.List(ctx, repoOwner, repoName, &github.PullRequestListOptions{
-			Head:      fmt.Sprintf("%s:%s", repoOwner, branchName),
-			State:     "all",
-			Direction: "desc",
-			ListOptions: github.ListOptions{
-				PerPage: 1,
-			},
-		})
+
+		pr, err := g.getPullRequestStatus(ctx, r.GetOwner().GetLogin(), r.GetName(), branchName)
 		if err != nil {
 			return nil, err
 		}
-		if len(prs) != 1 {
-			continue
+
+		if pr != nil {
+			prStatuses = append(prStatuses, pr)
 		}
-		pr := prs[0]
-
-		// Determine the status of the pr
-		var status domain.PullRequestStatus
-		if pr.MergedAt != nil {
-			status = domain.PullRequestStatusMerged
-		} else if pr.ClosedAt != nil {
-			status = domain.PullRequestStatusClosed
-		} else {
-			log.Debug("Fetching the combined status of the pull request")
-			combinedStatus, _, err := g.ghClient.Repositories.GetCombinedStatus(ctx, repoOwner, repoName, pr.GetHead().GetSHA(), nil)
-			if err != nil {
-				return nil, err
-			}
-
-			if combinedStatus.GetTotalCount() == 0 {
-				status = domain.PullRequestStatusSuccess
-			} else {
-				switch combinedStatus.GetState() {
-				case "pending":
-					status = domain.PullRequestStatusPending
-				case "success":
-					status = domain.PullRequestStatusSuccess
-				case "failure", "error":
-					status = domain.PullRequestStatusError
-				}
-			}
-		}
-
-		prStatuses = append(prStatuses, pullRequest{
-			ownerName:  repoOwner,
-			repoName:   repoName,
-			branchName: pr.GetHead().GetRef(),
-			number:     pr.GetNumber(),
-			status:     status,
-		})
 	}
 
 	return prStatuses, nil
+}
+
+// GetPullRequestStatuses gets the statuses of all pull requests of with a specific branch
+func (g Github) GetPullRequestStatus(ctx context.Context, repo domain.Repository, branchName string) (domain.PullRequest, error) {
+	r := repo.(repository)
+	return g.getPullRequestStatus(ctx, r.ownerName, r.name, branchName)
+}
+
+func (g Github) getPullRequestStatus(ctx context.Context, repoOwner, repoName, branchName string) (domain.PullRequest, error) {
+	log := log.WithField("repo", fmt.Sprintf("%s/%s", repoOwner, repoName))
+	log.Debug("Fetching latest pull request")
+	prs, _, err := g.ghClient.PullRequests.List(ctx, repoOwner, repoName, &github.PullRequestListOptions{
+		Head:      fmt.Sprintf("%s:%s", repoOwner, branchName),
+		State:     "all",
+		Direction: "desc",
+		ListOptions: github.ListOptions{
+			PerPage: 1,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(prs) != 1 {
+		return nil, nil
+	}
+	pr := prs[0]
+
+	// Determine the status of the pr
+	var status domain.PullRequestStatus
+	if pr.MergedAt != nil {
+		status = domain.PullRequestStatusMerged
+	} else if pr.ClosedAt != nil {
+		status = domain.PullRequestStatusClosed
+	} else {
+		log.Debug("Fetching the combined status of the pull request")
+		combinedStatus, _, err := g.ghClient.Repositories.GetCombinedStatus(ctx, repoOwner, repoName, pr.GetHead().GetSHA(), nil)
+		if err != nil {
+			return nil, err
+		}
+
+		if combinedStatus.GetTotalCount() == 0 {
+			status = domain.PullRequestStatusSuccess
+		} else {
+			switch combinedStatus.GetState() {
+			case "pending":
+				status = domain.PullRequestStatusPending
+			case "success":
+				status = domain.PullRequestStatusSuccess
+			case "failure", "error":
+				status = domain.PullRequestStatusError
+			}
+		}
+	}
+
+	return &pullRequest{
+		ownerName:  repoOwner,
+		repoName:   repoName,
+		branchName: pr.GetHead().GetRef(),
+		number:     pr.GetNumber(),
+		status:     status,
+	}, nil
 }
 
 // MergePullRequest merges a pull request
