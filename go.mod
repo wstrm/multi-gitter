@@ -5,7 +5,7 @@ go 1.16
 require (
 	code.gitea.io/sdk/gitea v0.14.0
 	github.com/go-git/go-git/v5 v5.4.1
-	github.com/google/go-github/v35 v35.1.0
+	github.com/google/go-github/v35 v35.2.0
 	github.com/pkg/errors v0.9.1
 	github.com/sergi/go-diff v1.2.0 // indirect
 	github.com/sirupsen/logrus v1.8.1
